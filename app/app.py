@@ -32,7 +32,7 @@ def get_db():
     return psycopg2.connect(**DB_CONFIG)
 
 # ── Harness FME SDK setup ─────────────────────────────────────────────────────
-SDK_KEY   = os.getenv("SDK_KEY", "jiih7km55tg7e87b3qjambin3ccliillbto8")
+SDK_KEY   = os.getenv("SDK_KEY", "SERVER_SIDE_SDK_HERE")
 USER_KEY  = "user_anonymous"
 FLAG_NAME = "use-split-name"
 
