@@ -1,0 +1,75 @@
+pipeline:
+  name: DBDO Backward Compat Schema Migration
+  identifier: dbdo_backward_compat_schema
+  projectIdentifier: <your_project>
+  orgIdentifier: default
+  stages:
+
+    # ── Stage 1: Run Flyway migrations V1–V3 (Expand + Migrate) ───────────────
+    - stage:
+        name: Schema Migration — Expand
+        identifier: schema_migration_expand
+        type: DBSCHEMA
+        spec:
+          connectorRef: <your_db_connector>
+          databaseName: ecommerce
+          tool: Flyway
+          migrationSource:
+            type: Git
+            connectorRef: <your_git_connector>
+            repoName: dbdo-tidbits-backward-compat-schema
+            branch: main
+            migrationScriptPath: migrations/
+          target: "3"   # Apply up to V3 — Expand + Migrate only; V4 (Contract) is deferred
+
+    # ── Stage 2: Deploy app (both v1 and v2 safe during this window) ──────────
+    - stage:
+        name: Deploy Application
+        identifier: deploy_application
+        type: Deployment
+        spec:
+          serviceConfig:
+            serviceRef: ecommerce-app
+          infrastructure:
+            environmentRef: production
+            infrastructureDefinition:
+              type: KubernetesDirect
+              spec:
+                connectorRef: <your_k8s_connector>
+                namespace: ecommerce
+          execution:
+            steps:
+              - step:
+                  name: Rolling Deploy
+                  identifier: rolling_deploy
+                  type: K8sRollingDeploy
+                  spec:
+                    skipDryRun: false
+
+    # ── Stage 3: Progressive rollout via Feature Flag ─────────────────────────
+    #    Toggle 'use-split-name' ON in Harness FME to switch traffic to v2 schema
+    - stage:
+        name: Progressive Rollout — Feature Flag
+        identifier: progressive_rollout_ff
+        type: FeatureFlag
+        spec:
+          feature: use-split-name
+          action: enable
+          environment: production
+
+    # ── Stage 4: Contract — drop old 'name' column (run only after full v2 rollout) ──
+    - stage:
+        name: Schema Migration — Contract
+        identifier: schema_migration_contract
+        type: DBSCHEMA
+        spec:
+          connectorRef: <your_db_connector>
+          databaseName: ecommerce
+          tool: Flyway
+          migrationSource:
+            type: Git
+            connectorRef: <your_git_connector>
+            repoName: dbdo-tidbits-backward-compat-schema
+            branch: main
+            migrationScriptPath: migrations/
+          target: "4"   # Now apply V4 — drop 'name' column
