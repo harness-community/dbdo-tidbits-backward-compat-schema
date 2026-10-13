@@ -1,0 +1,36 @@
+databaseChangeLog:
+  - changeSet:
+      id: v3-migrate-backfill-names
+      author: nida
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              UPDATE users
+              SET
+                first_name = SPLIT_PART(name, ' ', 1),
+                last_name  = CASE
+                               WHEN POSITION(' ' IN name) > 0
+                               THEN SUBSTRING(name FROM POSITION(' ' IN name) + 1)
+                               ELSE ''
+                             END
+              WHERE first_name IS NULL;
+
+              CREATE OR REPLACE FUNCTION sync_name_columns()
+              RETURNS TRIGGER AS $$
+              BEGIN
+                IF NEW.name IS NOT NULL AND NEW.first_name IS NULL THEN
+                  NEW.first_name := SPLIT_PART(NEW.name, ' ', 1);
+                  NEW.last_name  := CASE
+                                      WHEN POSITION(' ' IN NEW.name) > 0
+                                      THEN SUBSTRING(NEW.name FROM POSITION(' ' IN NEW.name) + 1)
+                                      ELSE ''
+                                    END;
+                END IF;
+                RETURN NEW;
+              END;
+              $$ LANGUAGE plpgsql;
+
+              CREATE TRIGGER trg_sync_name
+              BEFORE INSERT OR UPDATE ON users
+              FOR EACH ROW EXECUTE FUNCTION sync_name_columns();

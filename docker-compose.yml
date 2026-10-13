@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: ecommerce-db
+    environment:
+      POSTGRES_DB:       ecommerce
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  flyway:
+    image: flyway/flyway:10
+    container_name: flyway-migrate
+    command: >
+      -url=jdbc:postgresql://postgres:5432/ecommerce
+      -user=postgres
+      -password=postgres
+      -locations=filesystem:/flyway/sql
+      -target=3
+      migrate
+    volumes:
+      - ./migrations:/flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build: ./app
+    container_name: ecommerce-app
+    ports:
+      - "5001:5001"
+    environment:
+      DB_HOST:     postgres
+      DB_PORT:     5432
+      DB_NAME:     ecommerce
+      DB_USER:     postgres
+      DB_PASSWORD: postgres
+      SDK_KEY:     YOUR_SERVER_SIDE_SDK_KEY
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

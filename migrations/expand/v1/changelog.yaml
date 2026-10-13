@@ -1,0 +1,56 @@
+databaseChangeLog:
+  - changeSet:
+      id: v1-create-users-table
+      author: nida
+      changes:
+        - createTable:
+            tableName: users
+            columns:
+              - column:
+                  name: id
+                  type: SERIAL
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: email
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+        - insert:
+            tableName: users
+            columns:
+              - column:
+                  name: name
+                  value: Sarah Connor
+              - column:
+                  name: email
+                  value: sarah@example.com
+        - insert:
+            tableName: users
+            columns:
+              - column:
+                  name: name
+                  value: John Connor
+              - column:
+                  name: email
+                  value: john@example.com
+        - insert:
+            tableName: users
+            columns:
+              - column:
+                  name: name
+                  value: Miles Dyson
+              - column:
+                  name: email
+                  value: miles@example.com

@@ -1,0 +1,23 @@
+databaseChangeLog:
+
+  # ── V4: CONTRACT ───────────────────────────────────────────────────────────
+  # Drops the old 'name' column and the sync trigger.
+  #
+  # ⚠️  ONLY run this after:
+  #   1. App v2 is fully deployed to 100% of traffic
+  #   2. No v1 instances remain running
+  #   3. Feature flag 'use-split-name' is ON for all users
+  #
+  # Once this runs, v1 of the app will break — point of no return.
+
+  - changeSet:
+      id: v4-contract-drop-name
+      author: nida
+      changes:
+        - sql:
+            sql: |
+              DROP TRIGGER IF EXISTS trg_sync_name ON users;
+              DROP FUNCTION IF EXISTS sync_name_columns();
+        - dropColumn:
+            tableName: users
+            columnName: name

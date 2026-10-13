@@ -1,0 +1,229 @@
+pipeline:
+  name: backward-compat-migration
+  identifier: backwardcompatmigration
+  projectIdentifier: YOUR_PROJECT_IDENTIFIER
+  orgIdentifier: YOUR_ORG_IDENTIFIER
+  tags: {}
+  stages:
+
+    # ── Stage 1: V1 — Create users table ──────────────────────────────────────
+    - stage:
+        name: V1 Create Users Table
+        identifier: stage_v1
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - stepGroup:
+                  name: v1_group
+                  identifier: v1_group
+                  steps:
+                    - step:
+                        type: DBSchemaApply
+                        name: Apply V1
+                        identifier: apply_v1
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          migrationType: Liquibase
+                          dbSchema: YOUR_DB_SCHEMA_V1_ID
+                          dbInstance: YOUR_DB_INSTANCE_ID
+                        timeout: 10m
+                    - step:
+                        type: Run
+                        name: Show Schema After V1
+                        identifier: show_v1
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          image: postgres:15
+                          envVariables:
+                            PGPASSWORD: <+secrets.getValue("postgres-password")>
+                          command: |
+                            echo "=========================================="
+                            echo "Schema after V1 — users table created"
+                            echo "v1.0: one column for full name"
+                            echo "=========================================="
+                            psql "postgresql://YOUR_DB_USER@YOUR_DB_HOST:5432/YOUR_DB_NAME" \
+                              -c "\d users"
+                        timeout: 5m
+                  stepGroupInfra:
+                    type: KubernetesDirect
+                    spec:
+                      connectorRef: YOUR_KUBERNETES_CONNECTOR
+        tags: {}
+
+    # ── Stage 2: V2 — Expand: add first_name, last_name ───────────────────────
+    - stage:
+        name: V2 Expand Add Name Columns
+        identifier: stage_v2
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - stepGroup:
+                  name: v2_group
+                  identifier: v2_group
+                  steps:
+                    - step:
+                        type: DBSchemaApply
+                        name: Apply V2
+                        identifier: apply_v2
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          migrationType: Liquibase
+                          dbSchema: YOUR_DB_SCHEMA_V2_ID
+                          dbInstance: YOUR_DB_INSTANCE_ID
+                        timeout: 10m
+                    - step:
+                        type: Run
+                        name: Show Schema After V2
+                        identifier: show_v2
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          image: postgres:15
+                          envVariables:
+                            PGPASSWORD: <+secrets.getValue("postgres-password")>
+                          command: |
+                            echo "=========================================="
+                            echo "Schema after V2 — EXPAND complete"
+                            echo "first_name and last_name added (nullable)"
+                            echo "name column still there — v1 still works"
+                            echo "=========================================="
+                            psql "postgresql://YOUR_DB_USER@YOUR_DB_HOST:5432/YOUR_DB_NAME" \
+                              -c "\d users"
+                        timeout: 5m
+                  stepGroupInfra:
+                    type: KubernetesDirect
+                    spec:
+                      connectorRef: YOUR_KUBERNETES_CONNECTOR
+        tags: {}
+
+    # ── Stage 3: V3 — Migrate: backfill + sync trigger ────────────────────────
+    - stage:
+        name: V3 Migrate Backfill Sync Trigger
+        identifier: stage_v3
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - stepGroup:
+                  name: v3_group
+                  identifier: v3_group
+                  steps:
+                    - step:
+                        type: DBSchemaApply
+                        name: Apply V3
+                        identifier: apply_v3
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          migrationType: Liquibase
+                          dbSchema: YOUR_DB_SCHEMA_V3_ID
+                          dbInstance: YOUR_DB_INSTANCE_ID
+                        timeout: 10m
+                    - step:
+                        type: Run
+                        name: Show Data After V3
+                        identifier: show_v3
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          image: postgres:15
+                          envVariables:
+                            PGPASSWORD: <+secrets.getValue("postgres-password")>
+                          command: |
+                            echo "=========================================="
+                            echo "Data after V3 — MIGRATE complete"
+                            echo "All columns backfilled from existing data"
+                            echo "Sync trigger active"
+                            echo "=========================================="
+                            psql "postgresql://YOUR_DB_USER@YOUR_DB_HOST:5432/YOUR_DB_NAME" \
+                              -c "SELECT id, name, first_name, last_name FROM users ORDER BY id;"
+                            echo ""
+                            echo "Sync trigger installed:"
+                            psql "postgresql://YOUR_DB_USER@YOUR_DB_HOST:5432/YOUR_DB_NAME" \
+                              -c "SELECT trigger_name, event_manipulation, action_timing FROM information_schema.triggers WHERE event_object_table = 'users';"
+                        timeout: 5m
+                  stepGroupInfra:
+                    type: KubernetesDirect
+                    spec:
+                      connectorRef: YOUR_KUBERNETES_CONNECTOR
+        tags: {}
+
+    # ── Approval Gate — verify flag is ON before running Contract ─────────────
+    - stage:
+        name: Approve to Run Contract
+        identifier: approve_contract
+        type: Approval
+        spec:
+          execution:
+            steps:
+              - step:
+                  name: Approve Contract Stage
+                  identifier: approve_contract_step
+                  type: HarnessApproval
+                  spec:
+                    approvalMessage: |-
+                      Before approving, confirm ALL of the following:
+                      1. Feature flag use-split-name is ON for 100% of traffic
+                      2. No v1 app instances are running
+                      3. Flag OFF path has been tested and is no longer needed
+
+                      Once you approve, V4 will drop the name column.
+                      This is the point of no return — v1 will break.
+                    includePipelineExecutionHistory: true
+                    approvers:
+                      userGroups:
+                        - account._account_all_users
+                      minimumCount: 1
+                      disallowPipelineExecutor: false
+                    isAutoRejectEnabled: false
+                  timeout: 1d
+        tags: {}
+
+    # ── Stage 4: V4 — Contract: drop name column ──────────────────────────────
+    # ⚠️  Only run after flag is at 100% and all v1 pods are gone.
+    - stage:
+        name: V4 Contract Drop name Column
+        identifier: stage_v4
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - stepGroup:
+                  name: v4_group
+                  identifier: v4_group
+                  steps:
+                    - step:
+                        type: DBSchemaApply
+                        name: Apply V4
+                        identifier: apply_v4
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          migrationType: Liquibase
+                          dbSchema: YOUR_DB_SCHEMA_CONTRACT_ID
+                          dbInstance: YOUR_DB_INSTANCE_ID
+                        timeout: 10m
+                    - step:
+                        type: Run
+                        name: Show Final Schema After V4
+                        identifier: show_v4
+                        spec:
+                          connectorRef: YOUR_DOCKER_CONNECTOR
+                          image: postgres:15
+                          envVariables:
+                            PGPASSWORD: <+secrets.getValue("postgres-password")>
+                          command: |
+                            echo "=========================================="
+                            echo "Schema after V4 — CONTRACT complete"
+                            echo "name column dropped. Sync trigger removed."
+                            echo "v1 of the app will now break — expected."
+                            echo "=========================================="
+                            psql "postgresql://YOUR_DB_USER@YOUR_DB_HOST:5432/YOUR_DB_NAME" \
+                              -c "\d users"
+                            echo ""
+                            psql "postgresql://YOUR_DB_USER@YOUR_DB_HOST:5432/YOUR_DB_NAME" \
+                              -c "SELECT id, first_name, last_name FROM users ORDER BY id;"
+                        timeout: 5m
+                  stepGroupInfra:
+                    type: KubernetesDirect
+                    spec:
+                      connectorRef: YOUR_KUBERNETES_CONNECTOR
+        tags: {}
